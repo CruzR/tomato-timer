@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<!-- vim: set ts=2 sw=2 et: -->
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>🍅</title>
+    <style>
+body, div, p, label, h1, h2 {
+  margin: 0;
+  padding: 0;
+  background: white;
+  font-family: "Arial", sans-serif;
+}
+
+input, button {
+  margin: 0;
+  padding: 0;
+  font-family: "Arial", sans-serif;
+  font-size: 1rem;
+}
+    </style>
+    <style>
+body {
+  background-color: rgb(220, 210, 220);
+}
+
+#appContent {
+  width: 480px;
+  margin-left: auto;
+  margin-right: auto;
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+  box-shadow: 3px 3px 4px rgb(50, 50, 50);
+  padding-bottom: 1rem;
+  padding-top: 1rem;
+}
+
+#appContent > * {
+  margin-left: 1rem;
+  margin-right: 1rem;
+}
+
+#info {
+  margin-top: 2rem;
+  margin-bottom: 0.5rem;
+}
+
+#settingsContainer {
+  margin-top: 2rem;
+}
+
+#settings {
+  display: grid;
+  grid-template-columns: max-content max-content;
+  grid-auto-rows: auto;
+  column-gap: 0.5rem;
+  row-gap: 0.5rem;
+  align-items: center;
+}
+
+button, input {
+  padding: 0.5rem;
+}
+    </style>
+  </head>
+  <body>
+    <div id="appContent">
+      <h1>Tomato Timer</h1>
+      <p id="info"></p>
+      <div id="controls">
+        <button id="startButton">Start</button>
+        <button id="stopButton" disabled>Stop</button>
+        <button id="breakButton" disabled>Break</button>
+      </div>
+      <div id="settingsContainer">
+        <h2>Settings</h2>
+        <div id="settings">
+          <label for="workDuration">Work Duration</label>
+          <input id="workDuration" type="number">
+          <label for="breakDuration">Break Duration</label>
+          <input id="breakDuration" type="number">
+        </div>
+      </div>
+    </div>
+    <script>
+'use strict';
+
+(function() {
+  const workDurationInput = document.querySelector("#workDuration");
+  const breakDurationInput = document.querySelector("#breakDuration");
+  const startButton = document.querySelector("#startButton");
+  const breakButton = document.querySelector("#breakButton");
+  const stopButton = document.querySelector("#stopButton");
+  const infoParagraph = document.getElementById("info");
+  const MINUTE = 60 * 1000;
+  const WORK_DURATION_DEFAULT = 25;
+  const BREAK_DURATION_DEFAULT = 5;
+  const UPDATE_INTERVAL = 30 * 1000;
+
+  let nextStateChange = null;
+  let cancelTimeoutToken = null;
+  let cancelIntervalToken = null;
+  let notificationSent = false;
+  let state = "inactive";
+
+  if (!localStorage.getItem('workDuration')) {
+    localStorage.setItem('workDuration', WORK_DURATION_DEFAULT.toString());
+  }
+
+  if (!localStorage.getItem('breakDuration')) {
+    localStorage.setItem('breakDuration', BREAK_DURATION_DEFAULT.toString());
+  }
+
+  let workDuration = parseInt(localStorage.getItem('workDuration')) * MINUTE;
+  let breakDuration = parseInt(localStorage.getItem('breakDuration')) * MINUTE;
+  workDurationInput.value = workDuration / MINUTE;
+  breakDurationInput.value = breakDuration / MINUTE;
+
+  function renderButtons() {
+    if (state === "inactive") {
+      startButton.removeAttribute("disabled");
+      breakButton.setAttribute("disabled", "");
+      stopButton.setAttribute("disabled", "");
+    } else if (state === "working" || state === "resting") {
+      startButton.setAttribute("disabled", "");
+      breakButton.setAttribute("disabled", "");
+      stopButton.removeAttribute("disabled");
+    } else if (state === "work-done") {
+      startButton.setAttribute("disabled", "");
+      breakButton.removeAttribute("disabled");
+      stopButton.removeAttribute("disabled");
+    } else if (state === "rest-done") {
+      startButton.removeAttribute("disabled");
+      breakButton.setAttribute("disabled", "");
+      stopButton.removeAttribute("disabled");
+    }
+  }
+
+  function renderInfo() {
+    if (state === "inactive") {
+      infoParagraph.textContent = "Time to start working!";
+      document.title = "🍅";
+    } else if (state === "work-done") {
+      infoParagraph.textContent = "Work done, take a break!";
+      document.title = "🍅!";
+    } else if (state === "rest-done") {
+      infoParagraph.textContent = "Break done, start working!";
+      document.title = "🍅!";
+    } else if (state === "working" || state === "resting") {
+      const timeLeft = nextStateChange - (new Date()).getTime();
+      const millis = timeLeft % 1000;
+      const seconds = ((timeLeft - millis) % (60 * 1000)) / 1000;
+      const minutes = (timeLeft - 1000 * seconds - millis) / (60 * 1000);
+      const s = state + ", " + minutes + "min " + seconds + "s left";
+      infoParagraph.textContent = s;
+      const t = "🍅: " + minutes + "min " + seconds + "s";
+      document.title = t;
+    }
+  }
+
+  function startWorking() {
+    nextStateChange = (new Date()).getTime() + workDuration;
+    state = "working";
+    renderButtons();
+    renderInfo();
+
+    cancelTimeoutToken = window.setTimeout(function() {
+      state = "work-done";
+      renderButtons();
+
+      if (Notification.permission === "granted") {
+        const n = new Notification("Work done - start a break!");
+      }
+    }, workDuration);
+
+    cancelIntervalToken = window.setInterval(renderInfo, 1000);
+  }
+
+  function startBreak() {
+    nextStateChange = (new Date()).getTime() + breakDuration;
+    state = "resting";
+    renderButtons();
+    renderInfo();
+
+    cancelTimeoutToken = window.setTimeout(function() {
+      state = "rest-done";
+      renderButtons();
+
+      if (Notification.permission === "granted") {
+        const n = new Notification("Break done - start working!");
+      }
+    }, breakDuration);
+  }
+
+  function stopWorking() {
+    state = "inactive";
+    renderButtons();
+    renderInfo();
+
+    if (cancelTimeoutToken !== null) {
+      window.clearTimeout(cancelTimeoutToken);
+      cancelTimeoutToken = null;
+    }
+
+    if (cancelIntervalToken !== null) {
+      window.clearInterval(cancelIntervalToken);
+      cancelIntervalToken = null;
+    }
+  }
+
+  function changeWorkDuration() {
+    let newDuration = parseInt(workDurationInput.value);
+    if (Number.isNaN(newDuration)) return;
+    localStorage.setItem('workDuration', workDurationInput.value);
+    workDuration = newDuration * MINUTE;
+  }
+
+  function changeBreakDuration() {
+    let newDuration = parseInt(breakDurationInput.value);
+    if (Number.isNaN(newDuration)) return;
+    localStorage.setItem('breakDuration', workDurationInput.value);
+    breakDurationInput = newDuration * MINUTE;
+  }
+
+  workDurationInput.addEventListener("change", changeWorkDuration);
+  breakDurationInput.addEventListener("change", changeBreakDuration);
+  startButton.addEventListener("click", startWorking);
+  breakButton.addEventListener("click", startBreak);
+  stopButton.addEventListener("click", stopWorking);
+
+  renderInfo();
+
+  Notification.requestPermission();
+})();
+    </script>
+  </body>
+</html>
